@@ -2,8 +2,8 @@ name: astrbot_plugin_quark_gopeed
 display_name: 夸克网盘 → GoPeed
 desc: 微信发送夸克网盘分享链接（含提取码），自动解析真实下载直链并调用 GoPeed 创建下载任务
 version: v1.2.0
-author: lee
-repo: https://github.com/yourname/astrbot_plugin_quark_gopeed
+author: lirichu008-afkchu
+repo: https://github.com/lirichu008-afk/astrbot_plugin_quark_gopeed
 # 说明：本文件只承载插件元数据。
 # AstrBot WebUI 中的「配置项」界面由同目录下的 _conf_schema.json 定义，
 # 不在此文件中声明 —— 这是 AstrBot 的既定约定。
