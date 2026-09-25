@@ -1,0 +1,122 @@
+{
+  "quark_cookie": {
+    "description": "夸克账号 Cookie",
+    "type": "string",
+    "hint": "必填。浏览器登录 pan.quark.cn 后，从开发者工具 Network 里复制完整 Cookie。插件不会打印该值。",
+    "default": ""
+  },
+  "gopeed_host": {
+    "description": "GoPeed 服务地址",
+    "type": "string",
+    "hint": "AstrBot 与 GoPeed 若在不同容器/机器，请填 NAS 的局域网 IP，不要填 127.0.0.1。",
+    "default": "127.0.0.1"
+  },
+  "gopeed_port": {
+    "description": "GoPeed 端口",
+    "type": "int",
+    "hint": "GoPeed HTTP API 端口。",
+    "default": 9999
+  },
+  "gopeed_token": {
+    "description": "GoPeed 接口令牌",
+    "type": "string",
+    "hint": "必填（除非 GoPeed 未开启鉴权）。",
+    "default": ""
+  },
+  "allowed_users": {
+    "description": "允许使用的用户/群 ID 白名单",
+    "type": "list",
+    "hint": "留空表示允许所有人。建议填写，避免夸克账号因滥用触发风控。",
+    "default": []
+  },
+  "max_files": {
+    "description": "单次最多处理的文件数",
+    "type": "int",
+    "hint": "防止一个分享包含上百个文件时瞬间创建大量任务。",
+    "default": 5
+  },
+  "quark_recursive": {
+    "description": "递归下载文件夹内容",
+    "type": "bool",
+    "hint": "开启后，分享中的文件夹会被递归展开并逐个下载。默认关闭。",
+    "default": false
+  },
+  "quark_save_dir_fid": {
+    "description": "夸克转存目标目录 fid",
+    "type": "string",
+    "hint": "转存到哪个目录。0 表示网盘根目录。建议指定一个专用目录，避免污染根目录。",
+    "default": "0"
+  },
+  "quark_task_timeout": {
+    "description": "等待夸克转存完成的超时（秒）",
+    "type": "int",
+    "hint": "大文件或繁忙时段可能需要更久。",
+    "default": 90
+  },
+  "request_timeout": {
+    "description": "夸克接口 HTTP 超时（秒）",
+    "type": "int",
+    "hint": "单次请求超时时间。",
+    "default": 30
+  },
+  "dedup_seconds": {
+    "description": "重复链接拦截窗口（秒）",
+    "type": "int",
+    "hint": "同一分享链接在该时间内重复发送会被拦截。填 0 表示不拦截。",
+    "default": 300
+  },
+  "gopeed_api_path": {
+    "description": "GoPeed 创建任务接口路径",
+    "type": "string",
+    "hint": "已按 GoPeed 1.9.3 实测校准为 /api/v1/tasks。注意 /api/v1/download 不存在（会返回 404）。",
+    "default": "/api/v1/tasks"
+  },
+  "gopeed_auth_header": {
+    "description": "GoPeed 认证请求头名称",
+    "type": "string",
+    "hint": "默认 Authorization。实测 GoPeed 1.9.3 未开启 API 鉴权时无需该头，留空配置 token 即可正常提交。",
+    "default": "Authorization"
+  },
+  "gopeed_auth_scheme": {
+    "description": "GoPeed 认证方案前缀",
+    "type": "string",
+    "hint": "默认 Bearer，最终请求头为「Authorization: Bearer <token>」。留空则只发送 token 本身。",
+    "default": "Bearer"
+  },
+  "gopeed_payload_template": {
+    "description": "GoPeed 请求体 JSON 模板",
+    "type": "string",
+    "hint": "已按 GoPeed 1.9.3 实测校准。支持 {url} {name} {path} {headers} 四个占位符，其中 {headers} 会替换成完整 JSON 对象。切勿改成不含 req 包装的旧格式，会被 GoPeed 以 code=1002 拒绝。",
+    "default": "{\"req\": {\"url\": \"{url}\", \"extra\": {\"header\": {headers}}}, \"opt\": {\"name\": \"{name}\", \"path\": \"{path}\"}}"
+  },
+  "gopeed_forward_cookies": {
+    "description": "把刷新后的 Cookie 转发给 GoPeed",
+    "type": "bool",
+    "hint": "务必保持开启。夸克 CDN 要求下载直链携带刷新后的 __puus 会话令牌，否则返回 412 Precondition Failed。注意：开启后 Cookie 会随任务存入 GoPeed 的数据库。",
+    "default": true
+  },
+  "quark_user_agent": {
+    "description": "下载时使用的 User-Agent",
+    "type": "string",
+    "hint": "留空使用内置的桌面版 Chrome UA。一般无需修改。",
+    "default": ""
+  },
+  "gopeed_download_path": {
+    "description": "GoPeed 下载目录（容器内路径）",
+    "type": "string",
+    "hint": "留空使用 GoPeed 默认目录（实测为 /app/downloads，对应宿主 /vol2/1000/downloads）。填 /app/downloads 可显式指定。",
+    "default": ""
+  },
+  "gopeed_use_ssl": {
+    "description": "GoPeed 使用 HTTPS",
+    "type": "bool",
+    "hint": "仅在 GoPeed 前面挂了反向代理并启用 TLS 时开启。",
+    "default": false
+  },
+  "gopeed_timeout": {
+    "description": "GoPeed 请求超时（秒）",
+    "type": "int",
+    "hint": "提交任务一般很快，超时通常意味着地址或网络不通。",
+    "default": 15
+  }
+}

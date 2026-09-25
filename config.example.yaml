@@ -1,0 +1,99 @@
+# ============================================================================
+# astrbot_plugin_quark_gopeed 配置示例
+# ============================================================================
+#
+# 注意：AstrBot 实际读取的是同目录下的 `_conf_schema.json` 以及 WebUI 中保存的
+# 配置数据，**并不直接读取本文件**。本文件仅作为参考示例，方便你：
+#   1. 了解所有可用配置项及其含义；
+#   2. 备份 / 迁移配置时对照；
+#   3. 在 WebUI 中逐项填写时抄写。
+#
+# 正式配置请到：AstrBot WebUI -> 插件管理 -> astrbot_plugin_quark_gopeed -> 配置
+# ============================================================================
+
+# ---------------------------- 必填项 ----------------------------
+
+# 夸克账号 Cookie。浏览器登录 pan.quark.cn 后从开发者工具复制完整 Cookie。
+# 该值属于敏感凭据，插件日志中不会打印，但请勿提交到公开仓库。
+quark_cookie: ""
+
+# GoPeed 接口令牌。GoPeed 未开启 API 鉴权时留空即可（实测 1.9.3 默认未开启）。
+gopeed_token: ""
+
+# ---------------------------- GoPeed 连接 ----------------------------
+
+# GoPeed 服务地址。
+# ⚠️ AstrBot 与 GoPeed 若不在同一容器 / 同一台机器，填 127.0.0.1 会连不上，
+#    必须填写 NAS 的局域网 IP，例如 192.168.1.100。
+gopeed_host: "127.0.0.1"
+
+# GoPeed HTTP API 端口。
+gopeed_port: 9999
+
+# 是否使用 HTTPS（仅在 GoPeed 前有反向代理并启用 TLS 时开启）。
+gopeed_use_ssl: false
+
+# 请求超时（秒）。
+gopeed_timeout: 15
+
+# --------------- GoPeed 接口形态（已按 v1.9.3 实测校准，通常无需修改） ---------------
+
+# 创建任务的接口路径。
+# 实测：/api/v1/download 不存在（返回 404），正确路径是 /api/v1/tasks。
+gopeed_api_path: "/api/v1/tasks"
+
+# 认证请求头名称。默认 Authorization；部分版本使用 X-Gopeed-Token 或 X-Api-Token。
+gopeed_auth_header: "Authorization"
+
+# 认证方案前缀。默认 Bearer，最终形如「Authorization: Bearer <token>」。
+# 留空则只发送 token 本身。
+gopeed_auth_scheme: "Bearer"
+
+# 请求体 JSON 模板。支持 {url} / {name} / {path} / {headers} 四个占位符。
+# {headers} 会替换成一个完整的 JSON 对象，用于把下载所需的 Cookie 等请求头交给 GoPeed。
+# ⚠️ 实测 GoPeed 要求 req / opt 包装。切勿改回裸的 '{"url": "{url}"}'，
+#    那会被 GoPeed 以 code=1002 (param invalid: rid or req) 拒绝。
+gopeed_payload_template: '{"req": {"url": "{url}", "extra": {"header": {headers}}}, "opt": {"name": "{name}", "path": "{path}"}}'
+
+# 是否把刷新后的 Cookie 转发给 GoPeed。
+# ⚠️ 务必保持 true：夸克 CDN 要求下载直链携带刷新后的 __puus 会话令牌，
+#    否则一律返回 412 Precondition Failed，表现为「任务创建成功但下载失败」。
+#    注意开启后 Cookie 会随任务保存在 GoPeed 的数据库里。
+gopeed_forward_cookies: true
+
+# 下载时使用的 User-Agent。留空使用内置桌面版 Chrome UA。
+quark_user_agent: ""
+
+# GoPeed 下载目录（容器内路径）。留空使用 GoPeed 默认目录（实测为 /app/downloads）。
+gopeed_download_path: ""
+
+# ---------------------------- 权限控制 ----------------------------
+
+# 允许使用的用户 / 群 ID 白名单。留空表示允许所有人。
+# 强烈建议填写：夸克对批量下载有风控，滥用可能导致账号被限制。
+allowed_users: []
+# 例如：
+# allowed_users:
+#   - "wxid_abcdefg123456"
+#   - "123456789@chatroom"
+
+# ---------------------------- 夸克行为 ----------------------------
+
+# 单次最多处理的文件数，防止一个分享包含大量文件时瞬间创建上百个任务。
+max_files: 5
+
+# 是否递归下载文件夹内容。默认关闭 —— 分享内含文件夹时会提示用户。
+quark_recursive: false
+
+# 转存目标目录的 fid。0 表示网盘根目录。
+# 建议指定一个专用目录，避免每次下载都往根目录塞文件。
+quark_save_dir_fid: "0"
+
+# 等待夸克完成转存的最长秒数。大文件或高峰时段可能需要调大。
+quark_task_timeout: 90
+
+# 夸克接口单次 HTTP 请求超时（秒）。
+request_timeout: 30
+
+# 重复链接拦截窗口（秒）。同一分享链接在窗口内重复发送会被拦截。0 表示不拦截。
+dedup_seconds: 300

@@ -1,0 +1,10 @@
+# astrbot_plugin_quark_gopeed 依赖
+#
+# 说明：本插件**不依赖 quarkpan**。
+# 原因：quarkpan 是同步阻塞库，且其 API 稳定性与维护状态无法确认；
+# 本插件基于 httpx 自行实现了异步夸克客户端（见 quark_client.py），
+# 好处是：① 全异步，不阻塞 AstrBot 事件循环；② 夸克接口集中在单文件，便于修正。
+# 如你更希望使用 quarkpan，可在 quark_client.py 中替换实现，接口保持不变即可。
+
+# AstrBot 通常已自带 httpx；此处显式声明以确保运行时装上。
+httpx>=0.27.0
