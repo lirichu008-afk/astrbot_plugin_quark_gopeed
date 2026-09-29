@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import urllib.parse
 from typing import Any
 
 import httpx
@@ -435,6 +436,28 @@ class QuarkClient:
     # ------------------------------------------------------------------ #
     # 步骤 5：换取下载直链
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def filename_from_url(url: str) -> str:
+        """从夸克下载直链的 ``filename`` 查询参数里提取文件名。
+
+        夸克直链形如::
+
+            https://dl-pc-zb.drive.quark.cn/<hash1>/<hash2>/<hash3>
+                ?auth_key=...&token=...&filename=周杰伦-稻香.wav
+
+        当 API 没有返回 ``file_name`` 时，这里的 filename 是唯一的文件名来源。
+        若拿不到则返回空串。
+        """
+        if not url:
+            return ""
+        try:
+            query = urllib.parse.urlparse(url).query
+            values = urllib.parse.parse_qs(query).get("filename") or []
+        except Exception:  # noqa: BLE001 - 解析失败就当没有
+            return ""
+        name = (values[0] if values else "").strip()
+        return name
+
     async def get_download_urls(self, fids: list[str]) -> list[dict[str, str]]:
         """用 fid 列表换取带签名的下载直链。
 
@@ -460,13 +483,24 @@ class QuarkClient:
             if not isinstance(item, dict):
                 continue
             url = item.get("download_url")
-            if url:
-                results.append(
-                    {
-                        "url": str(url),
-                        "file_name": str(item.get("file_name") or ""),
-                    }
-                )
+            if not url:
+                continue
+            url = str(url)
+
+            name = str(item.get("file_name") or "").strip()
+            if not name:
+                # 接口没给名字时，从 URL 的 filename 参数兜底，
+                # 否则 GoPeed 会拿 URL 路径里的 hash 当文件名。
+                name = self.filename_from_url(url)
+                if name:
+                    logger.info("接口未返回文件名，已从直链 filename 参数取得：%s", name)
+                else:
+                    logger.warning(
+                        "接口未返回文件名，且直链里也没有 filename 参数，"
+                        "GoPeed 可能会用 URL 路径命名"
+                    )
+
+            results.append({"url": url, "file_name": name})
         return results
 
     # ------------------------------------------------------------------ #

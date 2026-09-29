@@ -42,12 +42,14 @@ gopeed_timeout: 15
 # 实测：/api/v1/download 不存在（返回 404），正确路径是 /api/v1/tasks。
 gopeed_api_path: "/api/v1/tasks"
 
-# 认证请求头名称。默认 Authorization；部分版本使用 X-Gopeed-Token 或 X-Api-Token。
-gopeed_auth_header: "Authorization"
+# 认证请求头名称。
+# ⚠️ 实测 GoPeed 1.9.3 只认 X-Api-Token；
+#    Authorization / X-Gopeed-Token / ?token= 一律返回 401。
+gopeed_auth_header: "X-Api-Token"
 
-# 认证方案前缀。默认 Bearer，最终形如「Authorization: Bearer <token>」。
-# 留空则只发送 token 本身。
-gopeed_auth_scheme: "Bearer"
+# 认证方案前缀。留空 = 只发送裸 token（GoPeed 1.9.3 即如此）。
+# 填 Bearer 会变成「X-Api-Token: Bearer <token>」，通常导致 401。
+gopeed_auth_scheme: ""
 
 # 请求体 JSON 模板。支持 {url} / {name} / {path} / {headers} 四个占位符。
 # {headers} 会替换成一个完整的 JSON 对象，用于把下载所需的 Cookie 等请求头交给 GoPeed。

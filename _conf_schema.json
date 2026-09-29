@@ -74,14 +74,14 @@
   "gopeed_auth_header": {
     "description": "GoPeed 认证请求头名称",
     "type": "string",
-    "hint": "默认 Authorization。实测 GoPeed 1.9.3 未开启 API 鉴权时无需该头，留空配置 token 即可正常提交。",
-    "default": "Authorization"
+    "hint": "实测 GoPeed 1.9.3 只认 X-Api-Token；Authorization / X-Gopeed-Token / ?token= 一律返回 401。若 GoPeed 完全未开启鉴权，可把 token 留空。",
+    "default": "X-Api-Token"
   },
   "gopeed_auth_scheme": {
     "description": "GoPeed 认证方案前缀",
     "type": "string",
-    "hint": "默认 Bearer，最终请求头为「Authorization: Bearer <token>」。留空则只发送 token 本身。",
-    "default": "Bearer"
+    "hint": "留空表示只发送裸 token（GoPeed 1.9.3 即如此）。填 Bearer 会变成「X-Api-Token: Bearer <token>」，通常会导致 401。",
+    "default": ""
   },
   "gopeed_payload_template": {
     "description": "GoPeed 请求体 JSON 模板",
@@ -118,5 +118,71 @@
     "type": "int",
     "hint": "提交任务一般很快，超时通常意味着地址或网络不通。",
     "default": 15
+  },
+  "search_enabled": {
+    "description": "启用搜索功能",
+    "type": "bool",
+    "hint": "开启后可用「搜索 关键词」检索网盘资源，再用「下载 序号」提交下载。",
+    "default": true
+  },
+  "search_sources": {
+    "description": "启用的搜索源",
+    "type": "list",
+    "hint": "目前可用：quanpansou（全盘搜 so.liumingye.cn）。留空表示启用全部已注册源。",
+    "default": ["quanpansou"]
+  },
+  "search_max_results": {
+    "description": "每次最多展示的结果数",
+    "type": "int",
+    "hint": "展示条数。实际会多取一些再过滤掉没有夸克链接的条目。",
+    "default": 10
+  },
+  "search_only_quark": {
+    "description": "只显示含夸克链接的结果",
+    "type": "bool",
+    "hint": "开启后，搜索结果里只有夸克网盘的条目会被列出（推荐，本插件的下载链路只支持夸克）。",
+    "default": true
+  },
+  "search_session_ttl": {
+    "description": "搜索结果有效期（秒）",
+    "type": "int",
+    "hint": "回复「下载 N」的有效时限，超时需重新搜索。默认 300 秒。",
+    "default": 300
+  },
+  "search_pick_first_quark": {
+    "description": "只下载第一个夸克链接",
+    "type": "bool",
+    "hint": "关闭时，若一条结果同时提供 MP3 和 FLAC，会分别提交多个下载任务；开启则只取第一个。",
+    "default": false
+  },
+  "search_rename_by_result": {
+    "description": "用搜索结果命名下载文件",
+    "type": "bool",
+    "hint": "开启后，从搜索下载的文件会命名为「歌名 - 歌手.扩展名」。因为网盘分享里的原名常带上传者的无意义数字（如「周杰伦 - (1785291570)七里香(2).mp3」）。关闭则沿用网盘原名。",
+    "default": true
+  },
+  "search_timeout": {
+    "description": "搜索接口超时（秒）",
+    "type": "int",
+    "hint": "请求搜索站点接口的超时时间。",
+    "default": 20
+  },
+  "search_base_url": {
+    "description": "搜索站点地址（留空用默认）",
+    "type": "string",
+    "hint": "默认 https://so.liumingye.cn。站点换域名时改这里即可，无需改代码。",
+    "default": ""
+  },
+  "search_user_agent": {
+    "description": "搜索请求的 User-Agent",
+    "type": "string",
+    "hint": "留空使用内置桌面版 Chrome UA。",
+    "default": ""
+  },
+  "search_max_sessions": {
+    "description": "会话缓存上限",
+    "type": "int",
+    "hint": "同时记住多少个会话的搜索结果，超出后丢弃最旧的。",
+    "default": 500
   }
 }

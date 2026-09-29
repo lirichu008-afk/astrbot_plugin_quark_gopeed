@@ -60,6 +60,8 @@ except Exception:  # pragma: no cover - 便于脱离 AstrBot 做静态检查
 try:
     from .gopeed_client import (
         DEFAULT_API_PATH,
+        DEFAULT_AUTH_HEADER,
+        DEFAULT_AUTH_SCHEME,
         DEFAULT_PAYLOAD_TEMPLATE,
         GopeedClient,
     )
@@ -70,9 +72,14 @@ try:
         QuarkError,
         QuarkPasscodeError,
     )
+    from .search_base import DownloadLink, SearchError, SearchResult
+    from .search_engine import SearchEngine, available_sources, create_sources
+    from .session import SessionStore
 except ImportError:  # pragma: no cover
     from gopeed_client import (  # type: ignore[no-redef]
         DEFAULT_API_PATH,
+        DEFAULT_AUTH_HEADER,
+        DEFAULT_AUTH_SCHEME,
         DEFAULT_PAYLOAD_TEMPLATE,
         GopeedClient,
     )
@@ -83,10 +90,33 @@ except ImportError:  # pragma: no cover
         QuarkError,
         QuarkPasscodeError,
     )
+    from search_base import (  # type: ignore[no-redef]
+        DownloadLink,
+        SearchError,
+        SearchResult,
+    )
+    from search_engine import (  # type: ignore[no-redef]
+        SearchEngine,
+        available_sources,
+        create_sources,
+    )
+    from session import SessionStore  # type: ignore[no-redef]
 
 
 PLUGIN_NAME = "astrbot_plugin_quark_gopeed"
-PLUGIN_VERSION = "1.2.0"
+PLUGIN_VERSION = "1.3.3"
+
+# --------------------------------------------------------------------------- #
+# 指令正则
+# --------------------------------------------------------------------------- #
+#: 搜索指令：搜索稻香 / 搜 稻香 / 查找 稻香
+#: 刻意不收「找」这种过宽的前缀，避免把「找你有事」当成搜索词。
+#: 「搜(?!索)」用于挡住正则回溯：否则只发「搜索」两字时，
+#: 会先试「搜索」失败、再回溯到「搜」，把剩下的「索」当成关键词。
+SEARCH_CMD_RE = re.compile(r"^(?:搜索|搜一下|搜(?!索)|查找)\s*[:：]?\s*(.+)$")
+#: 确认下载：下载1 / 下载 1 / 下载第1个 / 下 2
+CONFIRM_CMD_RE = re.compile(r"^(?:下载|下)\s*第?\s*(\d+)\s*个?$")
+
 
 # --------------------------------------------------------------------------- #
 # 链接解析
@@ -141,6 +171,42 @@ def parse_quark_link(text: str) -> tuple[str, str | None] | None:
             password = textual.group(1)
 
     return share_id, password
+
+
+# --------------------------------------------------------------------------- #
+# 文件名处理
+# --------------------------------------------------------------------------- #
+#: 匹配「纯 hash 文件名」，例如 6762d0f94c1b9a7f58584885833290176c0ae13f
+HASH_NAME_RE = re.compile(r"^[0-9a-fA-F]{16,}$")
+#: Windows/Linux 文件名里的非法字符
+ILLEGAL_NAME_RE = re.compile(r'[\\/:*?"<>|\r\n\t]+')
+
+
+def looks_like_hash_name(name: str) -> bool:
+    """判断文件名是否像网盘的 hash 命名。
+
+    网盘分享里常见上传者直接把文件存成 hash 名（一串 16 位以上的十六进制），
+    这种名字对用户毫无意义；若还拿不到别的名字，界面（和下载目录）里就会出现
+    「一串字符」。空名字也算不可读。
+    """
+    if not name:
+        return True
+    stem = name.rsplit(".", 1)[0] if "." in name else name
+    return bool(HASH_NAME_RE.match(stem.strip()))
+
+
+def sanitize_filename(name: str) -> str:
+    """清掉文件名里的非法字符并限长，避免写入失败。"""
+    cleaned = ILLEGAL_NAME_RE.sub("_", name or "").strip(" .")
+    return cleaned[:150]
+
+
+def build_name_from_hint(hint: str, original: str) -> str:
+    """用可读的名字（如「歌名 — 歌手」）替换不可读的文件名，尽量保留扩展名。"""
+    ext = ""
+    if "." in (original or ""):
+        ext = "." + original.rsplit(".", 1)[1]
+    return sanitize_filename(f"{hint}{ext}")
 
 
 # --------------------------------------------------------------------------- #
@@ -293,7 +359,7 @@ async def create_gopeed_task(
 # --------------------------------------------------------------------------- #
 @register(
     PLUGIN_NAME,
-    "lee",
+    "lirichu008-afk",
     "微信发送夸克网盘分享链接，自动解析直链并调用 GoPeed 创建下载任务",
     PLUGIN_VERSION,
 )
@@ -305,7 +371,19 @@ class QuarkGopeedPlugin(Star):
         self.config = config
         #: 最近的提交记录，用于去重：{share_id: 提交时间戳}
         self._recent: dict[str, float] = {}
-        logger.info("%s v%s 已加载", PLUGIN_NAME, PLUGIN_VERSION)
+        #: 会话状态：等待用户确认下载的搜索结果
+        self._sessions = SessionStore(
+            ttl=self._cfg_int("search_session_ttl", 300),
+            max_sessions=self._cfg_int("search_max_sessions", 500),
+        )
+        #: 搜索源实例（懒加载）
+        self._search_engine: SearchEngine | None = None
+        logger.info(
+            "%s v%s 已加载（搜索源：%s）",
+            PLUGIN_NAME,
+            PLUGIN_VERSION,
+            ", ".join(available_sources()),
+        )
 
     # ------------------------------------------------------------------ #
     # 配置读取
@@ -395,11 +473,28 @@ class QuarkGopeedPlugin(Star):
     # ------------------------------------------------------------------ #
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message(self, event: Any):
-        """监听全部消息，命中夸克链接时自动处理。"""
+        """消息总入口，按优先级依次尝试：搜索指令 -> 确认下载 -> 夸克链接。"""
         text = _extract_text(event)
         if not text:
             return
 
+        stripped = text.strip()
+
+        # ---- 1. 搜索指令 ----
+        match = SEARCH_CMD_RE.match(stripped)
+        if match:
+            async for chunk in self._handle_search(event, match.group(1).strip()):
+                yield chunk
+            return
+
+        # ---- 2. 确认下载 ----
+        match = CONFIRM_CMD_RE.match(stripped)
+        if match:
+            async for chunk in self._handle_confirm(event, int(match.group(1))):
+                yield chunk
+            return
+
+        # ---- 3. 夸克分享链接（原有逻辑）----
         parsed = parse_quark_link(text)
         if not parsed:
             return
@@ -453,12 +548,221 @@ class QuarkGopeedPlugin(Star):
         yield event.plain_result(self._format_reply(results))
 
     # ------------------------------------------------------------------ #
+    # 搜索：搜索指令
+    # ------------------------------------------------------------------ #
+    def _session_key(self, event: Any) -> str:
+        """会话隔离键：群聊按「群 + 人」，私聊按人。"""
+        group = _extract_group_id(event)
+        sender = _extract_sender_id(event) or "unknown"
+        return f"group:{group}:{sender}" if group else f"private:{sender}"
+
+    def _get_search_engine(self) -> SearchEngine | None:
+        """构造并缓存搜索引擎。"""
+        if self._search_engine is not None:
+            return self._search_engine
+
+        names = self._cfg_list("search_sources") or available_sources()
+        sources = create_sources(
+            names,
+            {
+                "timeout": self._cfg_float("search_timeout", 20.0),
+                "user_agent": str(self._cfg("search_user_agent", "") or ""),
+                "base_url": str(self._cfg("search_base_url", "") or ""),
+            },
+        )
+        if not sources:
+            logger.error("没有可用的搜索源，search_sources=%r", names)
+            return None
+
+        self._search_engine = SearchEngine(
+            sources,
+            only_quark=self._cfg_bool("search_only_quark", True),
+            max_results=self._cfg_int("search_max_results", 10),
+        )
+        return self._search_engine
+
+    async def _handle_search(self, event: Any, keyword: str):
+        """处理「搜索 XX」。"""
+        if not self._cfg_bool("search_enabled", True):
+            return
+
+        if not self._is_allowed(event):
+            logger.info("用户不在白名单，忽略搜索请求")
+            return
+
+        if not keyword:
+            yield event.plain_result("用法：搜索 <关键词>，例如「搜索 稻香」")
+            return
+
+        engine = self._get_search_engine()
+        if engine is None:
+            yield event.plain_result("❌ 没有可用的搜索源，请检查配置 search_sources。")
+            return
+
+        yield event.plain_result(f"🔍 正在搜索「{keyword}」…")
+
+        try:
+            outcome = await engine.search(keyword)
+        except Exception as exc:  # noqa: BLE001 - 兜底，避免影响插件其他功能
+            logger.exception("搜索出错")
+            yield event.plain_result(f"❌ 搜索失败：{exc}")
+            return
+
+        if not outcome.results:
+            lines = [f"😕 没有找到与「{keyword}」相关的夸克资源。"]
+            if outcome.total_found:
+                lines.append(f"（共搜到 {outcome.total_found} 条，但都没有夸克链接）")
+            lines.extend(f"⚠️ {err}" for err in outcome.errors)
+            yield event.plain_result("\n".join(lines))
+            return
+
+        self._sessions.save(self._session_key(event), keyword, outcome.results)
+
+        ttl = self._cfg_int("search_session_ttl", 300)
+        minutes = max(ttl // 60, 1)
+        lines = [f"🔍 「{keyword}」找到 {len(outcome.results)} 条夸克资源：", ""]
+        for idx, item in enumerate(outcome.results, 1):
+            lines.append(item.format_line(idx))
+        if outcome.skipped_no_quark:
+            lines.append("")
+            lines.append(f"（已过滤 {outcome.skipped_no_quark} 条无夸克链接的结果）")
+        lines.append("")
+        lines.append(f"回复「下载 序号」开始下载，{minutes} 分钟内有效")
+        yield event.plain_result("\n".join(lines))
+
+    # ------------------------------------------------------------------ #
+    # 搜索：确认下载
+    # ------------------------------------------------------------------ #
+    async def _handle_confirm(self, event: Any, index: int):
+        """处理「下载 N」。"""
+        if not self._cfg_bool("search_enabled", True):
+            return
+        if not self._is_allowed(event):
+            return
+
+        key = self._session_key(event)
+        pending = self._sessions.get(key)
+        if pending is None:
+            # 群里静默忽略，避免把别人的正常聊天（如「下载1」）当成指令；
+            # 私聊里给出提示更有帮助。
+            if not _extract_group_id(event):
+                yield event.plain_result(
+                    "没有待确认的搜索结果。请先发「搜索 关键词」。"
+                )
+            return
+
+        item = pending.pick(index)
+        if item is None:
+            yield event.plain_result(
+                f"⚠️ 序号 {index} 超出范围，当前只有 {len(pending.results)} 条。"
+            )
+            return
+
+        cookie = str(self._cfg("quark_cookie", "") or "").strip()
+        if not cookie:
+            yield event.plain_result(
+                "❌ 插件尚未配置夸克 Cookie，请先在配置中填写 quark_cookie。"
+            )
+            return
+
+        engine = self._get_search_engine()
+        if engine is None:
+            yield event.plain_result("❌ 没有可用的搜索源。")
+            return
+
+        yield event.plain_result(f"🔍 正在解析「{item.title}」的下载链接…")
+
+        try:
+            links = await engine.get_downloads(item.source, item.detail_id)
+        except SearchError as exc:
+            yield event.plain_result(f"❌ 获取下载链接失败：{exc}")
+            return
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("获取下载链接出错")
+            yield event.plain_result(f"❌ 获取下载链接失败：{exc}")
+            return
+
+        quark_links = [link for link in links if link.is_quark]
+        if not quark_links:
+            yield event.plain_result(
+                f"❌ 「{item.title}」没有可用的夸克链接（可能只提供其他网盘）。"
+            )
+            return
+
+        if self._cfg_bool("search_pick_first_quark", False):
+            quark_links = quark_links[:1]
+
+        # 用完即清，避免同一条被反复提交
+        self._sessions.clear(key)
+
+        names = "、".join(link.quality or "未知" for link in quark_links)
+        yield event.plain_result(f"📥 开始处理「{item.title}」（{names}）…")
+
+        # 用搜索结果里的「歌名 — 歌手」作为兜底文件名。
+        # 夸克那边给出的名字可能是空的，也可能只是一串 hash（分享者上传时就那样命名），
+        # 这时用它能避免下载目录里出现「一串字符」。
+        name_hint = item.title.strip()
+        if item.artist:
+            name_hint = f"{item.title} - {item.artist}"
+
+        summaries: list[tuple[str, bool, str]] = []
+        for link in quark_links:
+            parsed = parse_quark_link(link.url)
+            if not parsed:
+                summaries.append(
+                    (f"{item.title} [{link.quality or '未知'}]", False, f"无法识别链接：{link.url}")
+                )
+                continue
+
+            share_id, password = parsed
+            try:
+                summaries.extend(
+                    await self._process(
+                        share_id,
+                        password,
+                        cookie,
+                        name_hint=name_hint,
+                        force_name=self._cfg_bool("search_rename_by_result", True),
+                    )
+                )
+            except QuarkAuthError as exc:
+                logger.warning("夸克 Cookie 失效：%s", exc)
+                yield event.plain_result(f"❌ 夸克 Cookie 已失效，请更新配置。\n原因：{exc}")
+                return
+            except QuarkPasscodeError as exc:
+                summaries.append(
+                    (f"{item.title} [{link.quality or '未知'}]", False, f"需要提取码：{exc}")
+                )
+            except QuarkError as exc:
+                summaries.append((f"{item.title} [{link.quality or '未知'}]", False, str(exc)))
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("提交下载时出错")
+                summaries.append(
+                    (f"{item.title} [{link.quality or '未知'}]", False, f"未预期错误：{exc}")
+                )
+
+        yield event.plain_result(self._format_reply(summaries))
+
+    # ------------------------------------------------------------------ #
     # 业务处理
     # ------------------------------------------------------------------ #
     async def _process(
-        self, share_id: str, password: str | None, cookie: str
+        self,
+        share_id: str,
+        password: str | None,
+        cookie: str,
+        *,
+        name_hint: str = "",
+        force_name: bool = False,
     ) -> list[tuple[str, bool, str]]:
         """解析夸克直链并逐个提交到 GoPeed。
+
+        Args:
+            name_hint: 可读的名字（如「歌名 — 歌手」）。
+            force_name: 为 True 时**总是**用 name_hint 命名，而不是只在文件名
+                不可读时才替换。搜索下载会开启它 —— 因为网盘分享里的文件名
+                常带上传者的无意义数字（如「周杰伦 - (1785291570)七里香(2).mp3」），
+                用户期望看到的是自己搜的那个「歌名 — 歌手」。
 
         Returns:
             ``[(文件名, 是否成功, 提示信息), ...]``
@@ -519,9 +823,10 @@ class QuarkGopeedPlugin(Star):
                 self._cfg("gopeed_api_path", DEFAULT_API_PATH) or DEFAULT_API_PATH
             ),
             auth_header=str(
-                self._cfg("gopeed_auth_header", "Authorization") or "Authorization"
+                self._cfg("gopeed_auth_header", DEFAULT_AUTH_HEADER)
+                or DEFAULT_AUTH_HEADER
             ),
-            auth_scheme=str(self._cfg("gopeed_auth_scheme", "Bearer")),
+            auth_scheme=str(self._cfg("gopeed_auth_scheme", DEFAULT_AUTH_SCHEME)),
             payload_template=str(
                 self._cfg("gopeed_payload_template", DEFAULT_PAYLOAD_TEMPLATE)
                 or DEFAULT_PAYLOAD_TEMPLATE
@@ -530,13 +835,35 @@ class QuarkGopeedPlugin(Star):
             timeout=self._cfg_float("gopeed_timeout", 15.0),
         ) as gopeed:
             for item in downloads:
-                file_name = item.get("file_name") or ""
+                file_name = (item.get("file_name") or "").strip()
+
+                # 文件名不可读（空或纯 hash），或调用方要求强制命名时，
+                # 用可读名字替代，否则 GoPeed 会拿夸克直链 URL 路径里的 hash
+                # 或分享者留下的无意义数字串当文件名。
+                if name_hint and (force_name or looks_like_hash_name(file_name)):
+                    renamed = build_name_from_hint(name_hint, file_name)
+                    logger.info(
+                        "文件名 %r -> 改用可读名：%s",
+                        file_name or "(空)",
+                        renamed,
+                    )
+                    file_name = renamed
+
                 ok, message = await gopeed.create_task(
                     item["url"],
                     name=file_name,
                     path=download_path,
                     headers=download_headers,
                 )
+                # 失败必须记进日志：否则只能在微信回复里看到原因，运维时查不到
+                if ok:
+                    logger.info("GoPeed 已接受任务：%s", file_name or "未命名文件")
+                else:
+                    logger.warning(
+                        "GoPeed 拒绝任务：%s -> %s",
+                        file_name or "未命名文件",
+                        message,
+                    )
                 results.append((file_name or "未命名文件", ok, message))
 
         return results
@@ -573,4 +900,6 @@ class QuarkGopeedPlugin(Star):
     async def terminate(self) -> None:
         """插件卸载/重载时清理内存状态。"""
         self._recent.clear()
+        self._sessions.clear_all()
+        self._search_engine = None
         logger.info("%s 已卸载", PLUGIN_NAME)

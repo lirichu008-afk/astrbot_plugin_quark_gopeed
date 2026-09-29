@@ -34,13 +34,19 @@ except Exception:  # pragma: no cover
 
 
 #: 默认形态
-#: ⚠️ 以下默认值已按 GoPeed 1.9.3 的**实测结果**校准：
-#:     POST /api/v1/tasks   body: {"req": {"url": ...}, "opt": {...}}
-#: 早期版本曾按需求文档使用 /api/v1/download + {"url": ...}：
-#: 实测 /api/v1/download 返回 404，裸 {"url": ...} 被 GoPeed 以 code=1002 拒绝。
+#: ⚠️ 以下默认值均已按 GoPeed 1.9.3 的**实测结果**校准：
+#:
+#:   POST /api/v1/tasks   body: {"req": {"url": ...}, "opt": {...}}
+#:   GET  /api/v1/info    认证头: X-Api-Token: <token>   （值为裸 token，无 Bearer 前缀）
+#:
+#: 历史上踩过的坑（都已由实测推翻）：
+#:   * /api/v1/download 不存在（404）—— 正确端点是 /api/v1/tasks
+#:   * 裸 {"url": ...} 会被 GoPeed 以 code=1002 拒绝 —— 必须 req/opt 包装
+#:   * Authorization: Bearer <token> / X-Gopeed-Token / ?token= 一律 401
+#:     —— 实测只有 X-Api-Token 可行
 DEFAULT_API_PATH = "/api/v1/tasks"
-DEFAULT_AUTH_HEADER = "Authorization"
-DEFAULT_AUTH_SCHEME = "Bearer"
+DEFAULT_AUTH_HEADER = "X-Api-Token"
+DEFAULT_AUTH_SCHEME = ""
 DEFAULT_PAYLOAD_TEMPLATE = (
     '{"req": {"url": "{url}", "extra": {"header": {headers}}},'
     ' "opt": {"name": "{name}", "path": "{path}"}}'
