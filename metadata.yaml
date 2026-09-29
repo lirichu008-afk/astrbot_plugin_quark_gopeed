@@ -1,3 +1,5 @@
+# ⚠️ AI 生成声明：本插件的全部代码、文档与配置均由 AI 生成，
+# 未经人工逐行审查，也未经过完整测试。请在使用前自行阅读源码并评估风险，使用风险自负。
 name: astrbot_plugin_quark_gopeed
 display_name: 夸克网盘 → GoPeed
 desc: 搜索网盘资源并用 GoPeed 下载，也可直接发送夸克网盘分享链接自动下载

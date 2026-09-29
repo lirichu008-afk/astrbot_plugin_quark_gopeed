@@ -1,5 +1,12 @@
 # astrbot_plugin_quark_gopeed
 
+> ⚠️ **AI 生成声明**
+>
+> 本项目的**全部代码、文档与配置均由 AI 生成**，未经人工逐行审查，也未经过完整测试。
+> 请在使用前自行阅读源码并评估风险；因使用本项目造成的任何直接或间接损失，由使用者自行承担。
+>
+> This project is entirely AI-generated, without line-by-line human review or full testing. Use at your own risk.
+
 > 微信发送「搜索 稻香」→ 检索网盘资源 → 回复列表 → 回复「下载 1」→ 自动解析夸克直链并交给 GoPeed 下载
 >
 > 也可以直接发送夸克网盘分享链接（含提取码）自动下载。
